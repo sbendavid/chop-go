@@ -9,6 +9,21 @@ interface ProtectedRouteProps {
   requiredRole?: AppRole;
 }
 
+const getDashboardRoute = (role?: AppRole) => {
+  switch (role) {
+    case 'buyer':
+      return '/buyer';
+    case 'chef':
+      return '/chef';
+    case 'rider':
+      return '/rider';
+    case 'admin':
+      return '/founder';
+    default:
+      return '/auth';
+  }
+};
+
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const { user, loading, hasRole } = useAuth();
   const location = useLocation();
@@ -29,7 +44,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   }
 
   if (requiredRole && !hasRole(requiredRole)) {
-    return <Navigate to="/chef" replace />;
+    return <Navigate to={getDashboardRoute(user.role)} replace />;
   }
 
   return <>{children}</>;
