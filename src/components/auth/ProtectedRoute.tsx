@@ -43,9 +43,9 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  if (requiredRole && !hasRole(requiredRole)) {
-    return <Navigate to={getDashboardRoute(user.role)} replace />;
-  }
+if (requiredRole && !hasRole(requiredRole) && user.role !== requiredRole) {
+  return <Navigate to={getDashboardRoute(user.role)} replace />;
+}
 
   return <>{children}</>;
 }
