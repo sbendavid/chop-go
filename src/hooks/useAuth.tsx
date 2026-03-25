@@ -1,229 +1,250 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { api, refreshTokenStorage, tokenStorage } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 
-type AppRole = 'buyer' | 'chef' | 'rider' | 'admin';
+export type AppRole = 'buyer' | 'chef' | 'rider' | 'admin';
 
-interface Profile {
+interface RegisterApiRequest {
+  fullName: string
+  password: string
+  email: string;
+  phoneNumber: string;
+  role: AppRole;
+}
+ 
+interface LoginApiResponse {
+  message: string;
+  data: {
+    user: AppUser;
+    token: string;
+    refreshToken: string;
+  };
+}
+ 
+export interface AppUser {
+  _id: string;
+  email: string;
+  phoneNumber?: string;
+  role: AppRole;
+  fullName: string;
+}
+ 
+export interface Profile {
   id: string;
   user_id: string;
-  phone: string;
-  full_name: string | null;
+  phoneNumber: string;
+  fullName: string | null;
   avatar_url: string | null;
   nin_verified: boolean;
   bvn_verified: boolean;
   verification_status: string;
 }
+ 
+interface AuthResponse {
+  message: string;
+  data: {
+    user: AppUser;
+    token: string;
+    refreshToken: string;
+  };
+}
+ 
+interface MeResponse {
+  user: AppUser;
+  profile: Profile | null;
+  roles: AppRole[];
+}
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: AppUser | null;
   profile: Profile | null;
   roles: AppRole[];
   loading: boolean;
-  signInWithOtp: (phone: string) => Promise<{ error: Error | null }>;
-  verifyOtp: (phone: string, token: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, phone: string, fullName: string) => Promise<{ error: Error | null }>;
+  resendVerifyOtp: (email: string) => Promise<{ error: Error | null }>;
+  verifyOtp: (token: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, phoneNumber: string, fullName: string, role: AppRole,) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  addRole: (role: AppRole) => Promise<{ error: Error | null }>;
   hasRole: (role: AppRole) => boolean;
+}
+
+function decodeJwt(token: string): Record<string, unknown> | null {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch {
+    return null;
+  }
+}
+ 
+function rolesFromToken(token: string): AppRole[] {
+  const p = decodeJwt(token);
+  if (!p) return [];
+  if (typeof p.role === 'string')   return [p.role as AppRole];
+  if (Array.isArray(p.roles))       return p.roles as AppRole[];
+  return [];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  console.log("User", user)
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-    
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
-    }
-    return data as Profile | null;
-  };
+  function applyLogin(apiUser: AppUser, token: string, refreshToken: string) {
+    tokenStorage.set(token);
+    refreshTokenStorage.set(refreshToken);
 
-  const fetchRoles = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', userId);
-    
-    if (error) {
-      console.error('Error fetching roles:', error);
-      return [];
-    }
-    return data.map(r => r.role as AppRole);
-  };
+    const derivedRoles = rolesFromToken(token);
 
-  useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        // Defer Supabase calls with setTimeout
-        if (session?.user) {
-          setTimeout(async () => {
-            const [profileData, rolesData] = await Promise.all([
-              fetchProfile(session.user.id),
-              fetchRoles(session.user.id)
-            ]);
-            setProfile(profileData);
-            setRoles(rolesData);
-            setLoading(false);
-          }, 0);
-        } else {
-          setProfile(null);
-          setRoles([]);
-          setLoading(false);
-        }
-      }
-    );
-
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        Promise.all([
-          fetchProfile(session.user.id),
-          fetchRoles(session.user.id)
-        ]).then(([profileData, rolesData]) => {
-          setProfile(profileData);
-          setRoles(rolesData);
-          setLoading(false);
-        });
-      } else {
-        setLoading(false);
-      }
+    setUser({
+      ...apiUser,
+      role: derivedRoles[0] ?? apiUser.role,
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const signInWithOtp = async (phone: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithOtp({
-        phone,
-      });
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
-  };
-
-  const verifyOtp = async (phone: string, token: string) => {
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone,
-        token,
-        type: 'sms',
-      });
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
-  };
-
-  const signUp = async (email: string, password: string, phone: string, fullName: string) => {
-    try {
-      const redirectUrl = `${window.location.origin}/`;
-      
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: redirectUrl,
-          data: {
-            phone,
-            full_name: fullName,
-          }
-        }
-      });
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
-  };
-
-  const signIn = async (email: string, password: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) throw error;
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
-    }
-  };
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
+    setRoles(derivedRoles);
+    setProfile(null);
+  }
+ 
+  function clearSession() {
+    tokenStorage.clear();
     setUser(null);
-    setSession(null);
     setProfile(null);
     setRoles([]);
-  };
-
-  const addRole = async (role: AppRole) => {
-    if (!user) return { error: new Error('Not authenticated') };
-    
-    try {
-      const { error } = await supabase
-        .from('user_roles')
-        .insert({ user_id: user.id, role });
-      
-      if (error) throw error;
-      
-      setRoles(prev => [...prev, role]);
-      return { error: null };
-    } catch (error) {
-      return { error: error as Error };
+  }
+ 
+  // Restore session on page reload 
+ 
+  useEffect(() => {
+    const token = tokenStorage.get();
+    if (!token) { setLoading(false); return; }
+ 
+    const payload = decodeJwt(token);
+ 
+    // Check token hasn't expired
+    if (payload?.exp && (payload.exp as number) * 1000 < Date.now()) {
+      clearSession();
+      setLoading(false);
+      return;
     }
-  };
+ 
+    if (payload && typeof payload.userId === 'string') {
+      setUser({
+        _id:      payload.userId as string,
+        email:    (payload.email    as string) ?? '',
+        fullName: (payload.fullName as string) ?? '',
+        role:     (payload.role     as AppRole) ?? undefined,
+      });
+      setRoles(rolesFromToken(token));
+    } else {
+      clearSession();
+    }
+ 
+    setLoading(false);
+  }, []);
 
+
+  const signUp = useCallback(async (
+    email: string,
+    password: string,
+    fullName: string,
+    role: AppRole,
+    phoneNumber: string
+  ): Promise<{ error: Error | null }> => {
+    try {
+      const res = await api.post<AuthResponse>('/auth/register', {
+        email,
+        password,
+        fullName,
+        role,
+        phoneNumber
+      });
+      setUser(res.data.user);
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  }, []);
+ 
+  const signIn = useCallback(async (
+    email: string,
+    password: string
+  ): Promise<{ error: Error | null }> => {
+    try {
+      const res = await api.post<AuthResponse>('/auth/login', { email, password });
+
+      applyLogin(
+        res.data.user,
+        res.data.token,
+        res.data.refreshToken
+      );
+      setUser(res.data.user);
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  }, []);
+ 
+  const resendVerifyOtp = useCallback(async (email: string): Promise<{ error: Error | null }> => {
+    try {
+      await api.post('/auth/resend-verification-email', { email });
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  }, []);
+ 
+  const verifyOtp = useCallback(async (
+    token: string
+  ): Promise<{ error: Error | null }> => {
+    try {
+      const res = await api.get<AuthResponse>(`/auth/verify-email/${token}`);
+      setUser(res.data.user);
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
+    }
+  }, []);
+ 
+  const signOut = useCallback(async () => {
+    try {
+      await api.post('/auth/signout');
+    } catch {
+      // best-effort
+    } finally {
+      tokenStorage.clear();
+      setUser(null);
+      setProfile(null);
+      setRoles([]);
+    }
+  }, []);
+ 
   const hasRole = (role: AppRole) => roles.includes(role);
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      profile,
-      roles,
-      loading,
-      signInWithOtp,
-      verifyOtp,
-      signUp,
-      signIn,
-      signOut,
-      addRole,
-      hasRole,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        roles,
+        loading,
+        resendVerifyOtp,
+        verifyOtp,
+        signUp,
+        signIn,
+        signOut,
+        hasRole,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 }
-
+ 
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {

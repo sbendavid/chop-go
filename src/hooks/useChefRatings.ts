@@ -1,5 +1,14 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+/**
+ * useChefRatings.ts
+ * Migrated from Supabase to Express API.
+ *
+ * Express endpoints expected:
+ *   GET /api/chefs/:chefId/ratings          → { averageRating, reviewCount }
+ *   GET /api/chefs/ratings?ids=id1,id2,...  → Record<chefId, { averageRating, reviewCount }>
+ */
+
+import { useState, useEffect } from "react";
+import { api } from "@/lib/apiClient";
 
 interface ChefRatingStats {
   averageRating: number;
@@ -7,7 +16,10 @@ interface ChefRatingStats {
 }
 
 export const useChefRatings = (chefId: string | null) => {
-  const [stats, setStats] = useState<ChefRatingStats>({ averageRating: 0, reviewCount: 0 });
+  const [stats, setStats] = useState<ChefRatingStats>({
+    averageRating: 0,
+    reviewCount: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -16,35 +28,16 @@ export const useChefRatings = (chefId: string | null) => {
       return;
     }
 
-    const fetchRatings = async () => {
-      const { data, error } = await supabase
-        .from('order_reviews')
-        .select('chef_rating')
-        .eq('chef_id', chefId);
-
-      if (error) {
-        console.error('Error fetching chef ratings:', error);
-        setLoading(false);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        const total = data.reduce((sum, r) => sum + r.chef_rating, 0);
-        setStats({
-          averageRating: Math.round((total / data.length) * 10) / 10,
-          reviewCount: data.length
-        });
-      }
-      setLoading(false);
-    };
-
-    fetchRatings();
+    api
+      .get<ChefRatingStats>(`/chefs/${chefId}/ratings`)
+      .then((data) => setStats(data))
+      .catch((err) => console.error("Error fetching chef ratings:", err))
+      .finally(() => setLoading(false));
   }, [chefId]);
 
   return { ...stats, loading };
 };
 
-// Hook for fetching multiple chef ratings at once (for listings)
 export const useMultipleChefRatings = (chefIds: string[]) => {
   const [ratings, setRatings] = useState<Record<string, ChefRatingStats>>({});
   const [loading, setLoading] = useState(true);
@@ -55,40 +48,15 @@ export const useMultipleChefRatings = (chefIds: string[]) => {
       return;
     }
 
-    const fetchAllRatings = async () => {
-      const { data, error } = await supabase
-        .from('order_reviews')
-        .select('chef_id, chef_rating')
-        .in('chef_id', chefIds);
-
-      if (error) {
-        console.error('Error fetching chef ratings:', error);
-        setLoading(false);
-        return;
-      }
-
-      if (data) {
-        const grouped: Record<string, number[]> = {};
-        data.forEach(r => {
-          if (!grouped[r.chef_id]) grouped[r.chef_id] = [];
-          grouped[r.chef_id].push(r.chef_rating);
-        });
-
-        const stats: Record<string, ChefRatingStats> = {};
-        Object.entries(grouped).forEach(([chefId, ratings]) => {
-          const total = ratings.reduce((sum, r) => sum + r, 0);
-          stats[chefId] = {
-            averageRating: Math.round((total / ratings.length) * 10) / 10,
-            reviewCount: ratings.length
-          };
-        });
-        setRatings(stats);
-      }
-      setLoading(false);
-    };
-
-    fetchAllRatings();
-  }, [chefIds.join(',')]);
+    const ids = chefIds.join(",");
+    api
+      .get<Record<string, ChefRatingStats>>(`/chefs/ratings?ids=${ids}`)
+      .then((data) => setRatings(data))
+      .catch((err) =>
+        console.error("Error fetching multiple chef ratings:", err),
+      )
+      .finally(() => setLoading(false));
+  }, [chefIds.join(",")]);
 
   return { ratings, loading };
 };

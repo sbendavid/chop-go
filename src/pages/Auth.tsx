@@ -1,145 +1,216 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, AppRole } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { 
-  Phone, 
-  Mail, 
-  Lock, 
-  User, 
-  ArrowRight, 
-  Loader2, 
-  Shield, 
-  ChefHat, 
-  Bike, 
+import {
+  Mail,
+  Lock,
+  User,
+  ArrowRight,
+  ArrowLeft,
+  Loader2,
+  Shield,
+  ChefHat,
+  Bike,
   ShoppingBag,
-  CheckCircle2
+  CheckCircle2,
+  Phone,
 } from 'lucide-react';
 import { z } from 'zod';
 
-type AuthMode = 'signin' | 'signup' | 'otp-sent' | 'role-select' | 'nin-verify';
+// Validation 
 
-const phoneSchema = z.string().min(10, 'Phone number must be at least 10 digits');
-const emailSchema = z.string().email('Please enter a valid email');
+const phoneNumberSchema    = z.string().min(10, 'PhoneNumber number must be at least 10 digits');
+const emailSchema    = z.string().email('Please enter a valid email');
 const passwordSchema = z.string().min(6, 'Password must be at least 6 characters');
 
+// Modes
+
+type AuthMode = 'signin' | 'signup-info' | 'signup-role' | 'otp-verify' | 'nin-verify';
+
+// Role options 
+
+const ROLE_OPTIONS = [
+  {
+    id:          'buyer' as AppRole,
+    title:       'Hungry Customer',
+    description: 'Order delicious food from verified local chefs',
+    icon:        ShoppingBag,
+    color:       'text-primary',
+    bgColor:     'bg-primary/10',
+    borderColor: 'border-primary/40',
+  },
+  {
+    id:          'chef' as AppRole,
+    title:       'Home Chef',
+    description: 'Sell your signature dishes and build your brand',
+    icon:        ChefHat,
+    color:       'text-secondary',
+    bgColor:     'bg-secondary/10',
+    borderColor: 'border-secondary/40',
+  },
+  {
+    id:          'rider' as AppRole,
+    title:       'Delivery Rider',
+    description: 'Earn money delivering food in your area',
+    icon:        Bike,
+    color:       'text-accent',
+    bgColor:     'bg-accent/10',
+    borderColor: 'border-accent/40',
+  },
+] as const;
+
+// Component 
+
 const Auth = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { signUp, signIn, addRole, user } = useAuth();
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const { signIn, signUp, verifyOtp, resendVerifyOtp, user } = useAuth();
   const { toast } = useToast();
 
   const [mode, setMode] = useState<AuthMode>('signin');
   const [loading, setLoading] = useState(false);
 
-  // Form states
-  const [phone, setPhone] = useState('');
+  // Basic info fields
+  const [fullName, setFullName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+
+  // Role + NIN
+  const [selectedRole, setSelectedRole] = useState<AppRole | null>(null);
   const [nin, setNin] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'buyer' | 'chef' | 'rider' | null>(null);
+  const [otpCode, setOtpCode] = useState('');
 
-  const from = (location.state as any)?.from?.pathname || '/dashboard';
-
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      emailSchema.parse(email);
-      passwordSchema.parse(password);
-      phoneSchema.parse(phone);
-
-      const { error } = await signUp(email, password, phone, fullName);
-      
-      if (error) {
-        if (error.message.includes('already registered')) {
-          toast({
-            title: 'Account exists',
-            description: 'This email is already registered. Please sign in instead.',
-            variant: 'destructive',
-          });
-        } else {
-          throw error;
-        }
-      } else {
-        toast({
-          title: 'Account created!',
-          description: 'Welcome to Chop Market',
-        });
-        setMode('role-select');
-      }
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
+  const getDashboardRoute = (role: AppRole) => {
+    switch (role) {
+      case 'buyer':
+        return '/buyer';
+      case 'chef':
+        return '/chef';
+      case 'rider':
+        return '/rider';
+      case 'admin':
+        return '/founder';
+      default:
+        return '/dashboard';
     }
   };
+
+  type LocationState = {
+    from?: {
+      pathname?: string;
+    };
+  };
+
+  const from = (location.state as LocationState)?.from?.pathname;
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate(from || getDashboardRoute(user.role ?? 'buyer'), { replace: true });
+    }
+  }, [user, navigate, from]);
+
+  // Sign In
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
     try {
       emailSchema.parse(email);
       passwordSchema.parse(password);
 
       const { error } = await signIn(email, password);
-      
-      if (error) {
-        toast({
-          title: 'Sign in failed',
-          description: error.message,
-          variant: 'destructive',
-        });
-      } else {
-        toast({
-          title: 'Welcome back!',
-          description: 'Signed in successfully',
-        });
-        navigate(from, { replace: true });
-      }
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
-      });
+      if (error) throw error;
+
+      toast({ title: 'Welcome back! 👋', description: 'Signed in successfully' });
+    } catch (err: any) {
+      toast({ title: 'Sign in failed', description: err.message, variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRoleSelect = async (role: 'buyer' | 'chef' | 'rider') => {
+  // Step 1: validate basic info, advance to role select 
+
+  const handleInfoNext = (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (!fullName.trim()) throw new Error('Full name is required');
+      phoneNumberSchema.parse(phoneNumber);
+      emailSchema.parse(email);
+      passwordSchema.parse(password);
+      setMode('signup-role');
+    } catch (err: any) {
+      toast({ title: 'Check your details', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  // Step 2: role selected → call backend with all fields 
+
+  const handleRoleSelect = async (role: AppRole) => {
     setSelectedRole(role);
+    setLoading(true);
+    try {
+      const { error } = await signUp(email, password, fullName, role, phoneNumber as any);
+      if (error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('already') || msg.includes('exists') || msg.includes('duplicate')) {
+          toast({
+            title: 'Account already exists',
+            description: 'This email is registered. Please sign in instead.',
+            variant: 'destructive',
+          });
+          setMode('signin');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      toast({ title: '🎉 Account created!', description: 'Welcome to Chop Market' });
+
+      setMode('otp-verify');
+    } catch (err: any) {
+      toast({ title: 'Registration failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
 
     try {
-      if (role !== 'buyer') {
-        const { error } = await addRole(role);
-        if (error) throw error;
+      if (otpCode.trim().length < 4) {
+        throw new Error('Please enter a valid OTP code');
       }
-      
-      if (role === 'chef' || role === 'rider') {
+
+      const { error } = await verifyOtp(otpCode.trim());
+      if (error) throw error;
+
+      toast({
+        title: 'Welcome! 🎉',
+        description: 'Signed in successfully with OTP',
+      });
+
+      // Chef and Rider need NIN verification before entering their dashboard
+      if (selectedRole === 'chef' || selectedRole === 'rider') {
         setMode('nin-verify');
       } else {
         navigate('/buyer', { replace: true });
       }
-    } catch (error: any) {
+    } catch (err: any) {
       toast({
-        title: 'Error',
-        description: error.message,
+        title: 'OTP verification failed',
+        description: err.message,
         variant: 'destructive',
       });
     } finally {
@@ -147,82 +218,90 @@ const Auth = () => {
     }
   };
 
+  // NIN verification (mocked — wire to Smile ID when ready)
+
   const handleNinVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
-    // Mocked verification - in production would call Smile ID
     setTimeout(() => {
       toast({
         title: 'Verification Submitted',
-        description: 'Your NIN/BVN is being verified. This usually takes 2-5 minutes.',
+        description: 'Your NIN is being verified. This usually takes 2–5 minutes.',
       });
       setLoading(false);
-      
-      if (selectedRole === 'chef') {
-        navigate('/chef', { replace: true });
-      } else {
-        navigate('/rider', { replace: true });
-      }
+      navigate(selectedRole === 'chef' ? '/chef' : '/rider', { replace: true });
     }, 2000);
   };
 
-  const roles = [
-    {
-      id: 'buyer',
-      title: 'Hungry Customer',
-      description: 'Order delicious food from verified local chefs',
-      icon: ShoppingBag,
-      color: 'text-primary',
-      bgColor: 'bg-primary/10',
-    },
-    {
-      id: 'chef',
-      title: 'Home Chef',
-      description: 'Sell your signature dishes and build your brand',
-      icon: ChefHat,
-      color: 'text-secondary',
-      bgColor: 'bg-secondary/10',
-    },
-    {
-      id: 'rider',
-      title: 'Delivery Rider',
-      description: 'Earn money delivering food in your area',
-      icon: Bike,
-      color: 'text-accent',
-      bgColor: 'bg-accent/10',
-    },
-  ];
+  const handleResendOtp = async () => {
+    setLoading(true);
+
+    try {
+      const { error } = await resendVerifyOtp(email);
+      if (error) throw error;
+
+      toast({
+        title: 'OTP resent',
+        description: 'A new code has been sent to your phone number.',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Failed to resend OTP',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  //─ Render─
+
+  const pageTitle =
+    mode === 'signin' ? 'Sign In' :
+    mode === 'signup-info' ? 'Create Account' :
+    mode === 'otp-verify' ? 'Verify OTP' :
+    mode === 'signup-role' ? 'Choose Role' : 'Verify Identity';
 
   return (
     <>
       <Helmet>
-        <title>Sign In | Chop Market</title>
+        <title>{pageTitle} | Chop Market</title>
         <meta name="description" content="Sign in to Chop Market to order authentic Nigerian food or start selling as a chef." />
       </Helmet>
 
       <div className="min-h-screen bg-vault-gradient flex items-center justify-center p-4">
-        <div className="absolute inset-0 overflow-hidden">
+        {/* Background blobs */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-20 left-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl" />
           <div className="absolute bottom-20 right-10 w-96 h-96 bg-secondary/10 rounded-full blur-3xl" />
         </div>
 
         <Card className="relative w-full max-w-md bg-white/10 backdrop-blur-xl border-white/10 p-8">
-          {/* Logo */}
+
+          {/* Logo + subtitle */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-display font-bold text-white mb-2">
               Chop<span className="text-primary">Market</span>
             </h1>
-            <p className="text-white/60">
-              {mode === 'signin' && 'Welcome back! Sign in to continue'}
-              {mode === 'signup' && 'Create your account'}
-              {mode === 'otp-sent' && 'Enter the code we sent you'}
-              {mode === 'role-select' && 'How will you use Chop Market?'}
-              {mode === 'nin-verify' && 'Verify your identity'}
+            <p className="text-white/60 text-sm">
+              {mode === 'signin'      && 'Welcome back! Sign in to continue'}
+              {mode === 'signup-info' && 'Create your account — step 1 of 2'}
+              {mode === 'signup-role' && 'How will you use Chop Market?'}
+              {mode === 'otp-verify' && 'Enter the verification code sent to your email'}
+              {mode === 'nin-verify'  && 'Verify your identity'}
             </p>
+
+            {/* Progress dots for signup */}
+            {(mode === 'signup-info' || mode === 'signup-role') && (
+              <div className="flex justify-center gap-2 mt-3">
+                <span className={`w-2 h-2 rounded-full transition-colors ${mode === 'signup-info' ? 'bg-primary' : 'bg-white/30'}`} />
+                <span className={`w-2 h-2 rounded-full transition-colors ${mode === 'signup-role' ? 'bg-primary' : 'bg-white/30'}`} />
+              </div>
+            )}
           </div>
 
-          {/* Sign In Form */}
+          {/* SIGN IN */}
           {mode === 'signin' && (
             <form onSubmit={handleSignIn} className="space-y-4">
               <div className="space-y-2">
@@ -233,8 +312,9 @@ const Auth = () => {
                     type="email"
                     placeholder="you@example.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                    onChange={e => setEmail(e.target.value)}
+                    required
+                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
                   />
                 </div>
               </div>
@@ -247,38 +327,37 @@ const Auth = () => {
                     type="password"
                     placeholder="••••••••"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
                   />
                 </div>
               </div>
 
-              <Button type="submit" variant="hero" className="w-full" disabled={loading}>
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    Sign In
-                    <ArrowRight className="w-5 h-5 ml-2" />
-                  </>
-                )}
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <> Sign In <ArrowRight className="w-4 h-4 ml-2" /> </>
+                }
               </Button>
 
-              <div className="text-center pt-4">
+              <p className="text-center text-white/60 text-sm pt-1">
+                Don't have an account?{' '}
                 <button
                   type="button"
-                  onClick={() => setMode('signup')}
-                  className="text-white/60 hover:text-white transition-colors text-sm"
+                  onClick={() => { setMode('signup-info'); setEmail(''); setPassword(''); }}
+                  className="text-primary font-semibold hover:underline"
                 >
-                  Don't have an account? <span className="text-primary font-semibold">Sign up</span>
+                  Sign up
                 </button>
-              </div>
+              </p>
             </form>
           )}
 
-          {/* Sign Up Form */}
-          {mode === 'signup' && (
-            <form onSubmit={handleSignUp} className="space-y-4">
+          {/* SIGN UP — STEP 1: Basic info */}
+          {mode === 'signup-info' && (
+            <form onSubmit={handleInfoNext} className="space-y-4">
+              {/* Full Name */}
               <div className="space-y-2">
                 <label className="text-white/70 text-sm">Full Name</label>
                 <div className="relative">
@@ -287,26 +366,30 @@ const Auth = () => {
                     type="text"
                     placeholder="Chioma Okafor"
                     value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                    onChange={e => setFullName(e.target.value)}
+                    required
+                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
                   />
                 </div>
               </div>
 
+              {/* PhoneNumber */}
               <div className="space-y-2">
-                <label className="text-white/70 text-sm">Phone Number</label>
+                <label className="text-white/70 text-sm">PhoneNumber Number</label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
                   <Input
                     type="tel"
                     placeholder="+234 801 234 5678"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                    value={phoneNumber}
+                    onChange={e => setPhoneNumber(e.target.value)}
+                    required
+                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
                   />
                 </div>
               </div>
 
+              {/* Email */}
               <div className="space-y-2">
                 <label className="text-white/70 text-sm">Email</label>
                 <div className="relative">
@@ -315,12 +398,14 @@ const Auth = () => {
                     type="email"
                     placeholder="you@example.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                    onChange={e => setEmail(e.target.value)}
+                    required
+                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
                   />
                 </div>
               </div>
 
+              {/* Password */}
               <div className="space-y-2">
                 <label className="text-white/70 text-sm">Password</label>
                 <div className="relative">
@@ -329,64 +414,131 @@ const Auth = () => {
                     type="password"
                     placeholder="Min. 6 characters"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                    className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus-visible:ring-primary"
                   />
                 </div>
               </div>
 
-              <Button type="submit" variant="hero" className="w-full" disabled={loading}>
-                {loading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    Create Account
-                    <ArrowRight className="w-5 h-5 ml-2" />
-                  </>
-                )}
+              <Button type="submit" className="w-full">
+                Next — Choose Your Role <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
 
-              <div className="text-center pt-4">
+              <p className="text-center text-white/60 text-sm pt-1">
+                Already have an account?{' '}
                 <button
                   type="button"
                   onClick={() => setMode('signin')}
-                  className="text-white/60 hover:text-white transition-colors text-sm"
+                  className="text-primary font-semibold hover:underline"
                 >
-                  Already have an account? <span className="text-primary font-semibold">Sign in</span>
+                  Sign in
                 </button>
-              </div>
+              </p>
             </form>
           )}
 
-          {/* Role Selection */}
-          {mode === 'role-select' && (
-            <div className="space-y-4">
-              {roles.map((role) => {
+          {/* SIGN UP — STEP 2: Role selection */}
+          {mode === 'signup-role' && (
+            <div className="space-y-3">
+              {/* Back button */}
+              <button
+                onClick={() => setMode('signup-info')}
+                disabled={loading}
+                className="flex items-center gap-1 text-white/50 hover:text-white text-sm mb-2 transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back
+              </button>
+
+              {ROLE_OPTIONS.map(role => {
                 const Icon = role.icon;
+                const isSelected = selectedRole === role.id;
+                const isThisLoading = loading && isSelected;
+
                 return (
                   <button
                     key={role.id}
-                    onClick={() => handleRoleSelect(role.id as 'buyer' | 'chef' | 'rider')}
+                    onClick={() => handleRoleSelect(role.id)}
                     disabled={loading}
-                    className="w-full p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-left group"
+                    className={`
+                      w-full p-4 rounded-xl border transition-all text-left group
+                      ${isSelected
+                        ? `${role.bgColor} ${role.borderColor} border-2`
+                        : 'bg-white/5 hover:bg-white/10 border-white/10 hover:border-white/20'
+                      }
+                      disabled:opacity-60 disabled:cursor-not-allowed
+                    `}
                   >
                     <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl ${role.bgColor} flex items-center justify-center`}>
+                      <div className={`w-12 h-12 rounded-xl ${role.bgColor} flex items-center justify-center flex-shrink-0`}>
                         <Icon className={`w-6 h-6 ${role.color}`} />
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 text-left">
                         <h3 className="font-semibold text-white">{role.title}</h3>
                         <p className="text-sm text-white/60">{role.description}</p>
                       </div>
-                      <ArrowRight className="w-5 h-5 text-white/40 group-hover:text-white group-hover:translate-x-1 transition-all" />
+                      {isThisLoading
+                        ? <Loader2 className="w-5 h-5 text-white/60 animate-spin flex-shrink-0" />
+                        : <ArrowRight className="w-5 h-5 text-white/30 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" />
+                      }
                     </div>
                   </button>
                 );
               })}
+
+              <p className="text-white/40 text-xs text-center pt-2">
+                Your role determines your dashboard and permissions
+              </p>
             </div>
           )}
 
-          {/* NIN/BVN Verification (Mocked) */}
+          {/* OTP VERIFICATION */}
+          {mode === 'otp-verify' && (
+            <form onSubmit={handleVerifyOtp} className="space-y-4">
+              <div className="text-center text-white/60 text-sm">
+                Code sent to <span className="text-white font-medium">{email}</span>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-white/70 text-sm">Enter OTP Code</label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                  maxLength={6}
+                  required
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 text-center text-2xl tracking-[0.5em] focus-visible:ring-primary"
+                />
+                <p className="text-white/40 text-xs text-center">{otpCode.length}/6 digits</p>
+              </div>
+
+              <Button type="submit" className="w-full" disabled={loading || otpCode.length < 4}>
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    Verifying...
+                  </>
+                ) : (
+                  <>
+                    Verify OTP <ArrowRight className="w-4 h-4 ml-2" />
+                  </>
+                )}
+              </Button>
+
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={loading}
+                className="w-full text-white/60 text-sm hover:text-white transition-colors text-center"
+              >
+                Resend OTP
+              </button>
+            </form>
+          )}
+
+          {/* NIN VERIFICATION */}
           {mode === 'nin-verify' && (
             <form onSubmit={handleNinVerify} className="space-y-6">
               <div className="text-center mb-4">
@@ -396,50 +548,59 @@ const Auth = () => {
                 <Badge className="bg-secondary/20 text-secondary border-secondary/30">
                   Identity Verification Required
                 </Badge>
+                <p className="text-white/60 text-sm mt-2">
+                  Required for {selectedRole === 'chef' ? 'chefs' : 'riders'} to keep the platform safe
+                </p>
               </div>
 
               <div className="space-y-2">
                 <label className="text-white/70 text-sm">NIN (National Identification Number)</label>
                 <Input
                   type="text"
+                  inputMode="numeric"
                   placeholder="12345678901"
                   value={nin}
-                  onChange={(e) => setNin(e.target.value)}
+                  onChange={e => setNin(e.target.value.replace(/\D/g, ''))}
                   maxLength={11}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 text-center text-lg tracking-widest"
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 text-center text-lg tracking-widest focus-visible:ring-primary"
                 />
+                <p className="text-white/40 text-xs text-center">{nin.length}/11 digits</p>
               </div>
 
               <div className="bg-white/5 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2 text-white/70 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-secondary" />
-                  <span>Verified via Smile ID</span>
-                </div>
-                <div className="flex items-center gap-2 text-white/70 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-secondary" />
-                  <span>Your data is encrypted</span>
-                </div>
-                <div className="flex items-center gap-2 text-white/70 text-sm">
-                  <CheckCircle2 className="w-4 h-4 text-secondary" />
-                  <span>One-time verification</span>
-                </div>
+                {[
+                  'Verified via Smile ID',
+                  'Your data is encrypted & secure',
+                  'One-time verification only',
+                ].map(item => (
+                  <div key={item} className="flex items-center gap-2 text-white/70 text-sm">
+                    <CheckCircle2 className="w-4 h-4 text-secondary flex-shrink-0" />
+                    <span>{item}</span>
+                  </div>
+                ))}
               </div>
 
-              <Button type="submit" variant="hero" className="w-full" disabled={loading || nin.length !== 11}>
-                {loading ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                    Verifying...
-                  </>
-                ) : (
-                  <>
-                    Verify Identity
-                    <ArrowRight className="w-5 h-5 ml-2" />
-                  </>
-                )}
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={loading || nin.length !== 11}
+              >
+                {loading
+                  ? <> <Loader2 className="w-5 h-5 animate-spin mr-2" /> Verifying... </>
+                  : <> Verify & Continue <ArrowRight className="w-5 h-5 ml-2" /> </>
+                }
               </Button>
+
+              <button
+                type="button"
+                onClick={() => navigate(selectedRole === 'chef' ? '/chef' : '/rider', { replace: true })}
+                className="w-full text-white/40 text-sm hover:text-white/70 transition-colors text-center"
+              >
+                Skip for now — verify later
+              </button>
             </form>
           )}
+
         </Card>
       </div>
     </>

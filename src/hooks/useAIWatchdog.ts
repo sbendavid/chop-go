@@ -1,6 +1,15 @@
-import { useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+/**
+ * useAIWatchdog.ts
+ * Migrated from Supabase Edge Functions to Express API.
+ *
+ * Express endpoints expected:
+ *   POST /api/ai/watchdog   { type: 'spelling'|'protein'|'chat-sentry', content, dishName? }
+ *                           → { result: SpellingResult | ProteinResult | ChatSentryResult }
+ */
+
+import { useState } from "react";
+import { api } from "@/lib/apiClient";
+import { toast } from "sonner";
 
 interface SpellingResult {
   hasErrors: boolean;
@@ -19,70 +28,83 @@ interface ChatSentryResult {
   originalMessage: string;
   maskedMessage: string;
   detectedViolations: Array<{ type: string; value: string }>;
-  severity: 'none' | 'low' | 'medium' | 'high';
+  severity: "none" | "low" | "medium" | "high";
+}
+
+interface WatchdogResponse<T> {
+  result: T;
 }
 
 export const useAIWatchdog = () => {
   const [loading, setLoading] = useState(false);
 
-  const checkSpelling = async (inscription: string): Promise<SpellingResult | null> => {
+  const checkSpelling = async (
+    inscription: string,
+  ): Promise<SpellingResult | null> => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-watchdog', {
-        body: { type: 'spelling', content: inscription },
-      });
-
-      if (error) throw error;
-      return data.result as SpellingResult;
+      const data = await api.post<WatchdogResponse<SpellingResult>>(
+        "/ai/watchdog",
+        {
+          type: "spelling",
+          content: inscription,
+        },
+      );
+      return data.result;
     } catch (error: any) {
-      console.error('Spelling check error:', error);
-      toast.error('Spelling check failed', { description: error.message });
+      console.error("Spelling check error:", error);
+      toast.error("Spelling check failed", { description: error.message });
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const verifyProtein = async (description: string, dishName?: string): Promise<ProteinResult | null> => {
+  const verifyProtein = async (
+    description: string,
+    dishName?: string,
+  ): Promise<ProteinResult | null> => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-watchdog', {
-        body: { type: 'protein', content: description, dishName },
-      });
-
-      if (error) throw error;
-      return data.result as ProteinResult;
+      const data = await api.post<WatchdogResponse<ProteinResult>>(
+        "/ai/watchdog",
+        {
+          type: "protein",
+          content: description,
+          dishName,
+        },
+      );
+      return data.result;
     } catch (error: any) {
-      console.error('Protein verification error:', error);
-      toast.error('Protein check failed', { description: error.message });
+      console.error("Protein verification error:", error);
+      toast.error("Protein check failed", { description: error.message });
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const scanMessage = async (message: string): Promise<ChatSentryResult | null> => {
+  const scanMessage = async (
+    message: string,
+  ): Promise<ChatSentryResult | null> => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-watchdog', {
-        body: { type: 'chat-sentry', content: message },
-      });
-
-      if (error) throw error;
-      return data.result as ChatSentryResult;
+      const data = await api.post<WatchdogResponse<ChatSentryResult>>(
+        "/ai/watchdog",
+        {
+          type: "chat-sentry",
+          content: message,
+        },
+      );
+      return data.result;
     } catch (error: any) {
-      console.error('Chat sentry error:', error);
-      toast.error('Message scan failed', { description: error.message });
+      console.error("Chat sentry error:", error);
+      toast.error("Message scan failed", { description: error.message });
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  return {
-    loading,
-    checkSpelling,
-    verifyProtein,
-    scanMessage,
-  };
+  return { loading, checkSpelling, verifyProtein, scanMessage };
 };
