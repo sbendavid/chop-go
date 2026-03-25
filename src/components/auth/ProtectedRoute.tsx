@@ -29,7 +29,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   }
 
   if (requiredRole && !hasRole(requiredRole)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/chef" replace />;
   }
 
   return <>{children}</>;

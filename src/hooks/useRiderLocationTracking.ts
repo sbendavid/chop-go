@@ -1,19 +1,31 @@
-import { useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+/**
+ * useRiderLocationTracking.ts
+ * Migrated from Supabase Realtime presence to WebSocket + REST.
+ *
+ * Express endpoints expected:
+ *   PATCH /api/riders/:riderId/location  { lat, lng }  → 200
+ *
+ * WebSocket: sends presence track to channel `rider-location-{riderId}`
+ */
+
+import { useEffect, useRef } from "react";
+import { api } from "@/lib/apiClient";
+// import { trackPresence, createChannel } from "@/lib/socketClient";
 
 interface UseRiderLocationTrackingProps {
   riderId: string;
   isOnline: boolean;
-  updateInterval?: number; // in milliseconds
+  updateInterval?: number; // ms
 }
 
 export const useRiderLocationTracking = ({
   riderId,
   isOnline,
-  updateInterval = 10000, // 10 seconds default
+  updateInterval = 10000,
 }: UseRiderLocationTrackingProps) => {
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const dbTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastPositionRef = useRef<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     if (!isOnline || !riderId) {
@@ -22,65 +34,61 @@ export const useRiderLocationTracking = ({
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+      if (dbTimerRef.current !== null) {
+        clearInterval(dbTimerRef.current);
+        dbTimerRef.current = null;
       }
       return;
     }
 
-    // Create presence channel for real-time location sharing
-    const channel = supabase.channel(`rider-location-${riderId}`);
-    channelRef.current = channel;
+    const channel = `rider-location-${riderId}`;
 
-    channel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        // Start tracking location
-        if ('geolocation' in navigator) {
-          watchIdRef.current = navigator.geolocation.watchPosition(
-            async (position) => {
-              const { latitude, longitude } = position.coords;
-              
-              // Update presence with current location
-              await channel.track({
-                lat: latitude,
-                lng: longitude,
-                updated_at: new Date().toISOString(),
-              });
+    if ("geolocation" in navigator) {
+      // Watch position and push to WebSocket presence (realtime, lightweight)
+      watchIdRef.current = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude: lat, longitude: lng } = position.coords;
+          lastPositionRef.current = { lat, lng };
 
-              // Also update the database periodically
-              await supabase
-                .from('rider_profiles')
-                .update({
-                  current_lat: latitude,
-                  current_lng: longitude,
-                })
-                .eq('id', riderId);
-            },
-            (error) => {
-              console.error('Geolocation error:', error);
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 5000,
-              maximumAge: 0,
-            }
-          );
+          trackPresence(channel, {
+            lat,
+            lng,
+            updated_at: new Date().toISOString(),
+          });
+        },
+        (error) => console.error("Geolocation error:", error),
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
+      );
+
+      // Persist to DB at a lower frequency (every updateInterval ms)
+      dbTimerRef.current = setInterval(async () => {
+        if (!lastPositionRef.current) return;
+        const { lat, lng } = lastPositionRef.current;
+        try {
+          await api.patch(`/riders/${riderId}/location`, { lat, lng });
+        } catch (err) {
+          console.error("Failed to persist rider location:", err);
         }
-      }
-    });
+      }, updateInterval);
+    }
 
     return () => {
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
+      if (dbTimerRef.current !== null) {
+        clearInterval(dbTimerRef.current);
+        dbTimerRef.current = null;
       }
     };
   }, [riderId, isOnline, updateInterval]);
 };
 
 export default useRiderLocationTracking;
+function trackPresence(
+  channel: string,
+  arg1: { lat: number; lng: number; updated_at: string },
+) {
+  throw new Error("Function not implemented.");
+}

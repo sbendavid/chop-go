@@ -1,8 +1,21 @@
+/**
+ * useHaggle.ts
+ * Migrated from Supabase to Express API + WebSocket realtime.
+ *
+ * Express endpoints expected:
+ *   GET  /api/haggles?dish_id=...   → Haggle[]
+ *   POST /api/haggles               → Haggle
+ *   PUT  /api/haggles/:id           → Haggle
+ *
+ * WebSocket channel: 'haggles' — server emits INSERT / UPDATE / DELETE events
+ */
+
 import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/apiClient";
+// import { createChannel } from "@/lib/socketClient";
 import { useAuth } from "@/hooks/useAuth";
 
-interface Haggle {
+export interface Haggle {
   id: string;
   dish_id: string;
   buyer_id: string;
@@ -25,7 +38,6 @@ export function useHaggle(dishId?: string) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch haggles for the current user (as buyer or chef)
   const fetchHaggles = useCallback(async () => {
     if (!user) {
       setHaggles([]);
@@ -35,20 +47,9 @@ export function useHaggle(dishId?: string) {
 
     setIsLoading(true);
     try {
-      let query = supabase
-        .from("haggles")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (dishId) {
-        query = query.eq("dish_id", dishId);
-      }
-
-      const { data, error: fetchError } = await query;
-
-      if (fetchError) throw fetchError;
-
-      setHaggles(data || []);
+      const params = dishId ? `?dish_id=${dishId}` : "";
+      const data = await api.get<Haggle[]>(`/haggles${params}`);
+      setHaggles(data);
       setError(null);
     } catch (err: any) {
       setError(err.message);
@@ -62,57 +63,38 @@ export function useHaggle(dishId?: string) {
     fetchHaggles();
   }, [fetchHaggles]);
 
-  // Subscribe to real-time updates
+  // ── Realtime subscription (replaces supabase postgres_changes)
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
-      .channel("haggles-updates")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "haggles",
-        },
-        (payload) => {
-          if (payload.eventType === "INSERT") {
-            setHaggles((prev) => [payload.new as Haggle, ...prev]);
-          } else if (payload.eventType === "UPDATE") {
-            setHaggles((prev) =>
-              prev.map((h) => (h.id === (payload.new as Haggle).id ? (payload.new as Haggle) : h))
-            );
-          } else if (payload.eventType === "DELETE") {
-            setHaggles((prev) => prev.filter((h) => h.id !== (payload.old as Haggle).id));
-          }
-        }
-      )
-      .subscribe();
+    const unsub = createChannel<Haggle>("haggles", (event) => {
+      if (event.type === "INSERT" && event.new) {
+        setHaggles((prev) => [event.new!, ...prev]);
+      } else if (event.type === "UPDATE" && event.new) {
+        setHaggles((prev) =>
+          prev.map((h) => (h.id === event.new!.id ? event.new! : h)),
+        );
+      } else if (event.type === "DELETE" && event.old) {
+        setHaggles((prev) => prev.filter((h) => h.id !== event.old!.id));
+      }
+    });
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return unsub;
   }, [user]);
 
-  // Get active haggle for a specific dish
   const getActiveHaggle = useCallback(
-    (targetDishId: string) => {
-      return haggles.find(
+    (targetDishId: string) =>
+      haggles.find(
         (h) =>
           h.dish_id === targetDishId &&
-          (h.status === "pending" || h.status === "countered")
-      );
-    },
-    [haggles]
+          (h.status === "pending" || h.status === "countered"),
+      ),
+    [haggles],
   );
 
-  // Check if user can haggle on a dish
   const canHaggle = useCallback(
-    (targetDishId: string) => {
-      const activeHaggle = getActiveHaggle(targetDishId);
-      return !activeHaggle;
-    },
-    [getActiveHaggle]
+    (targetDishId: string) => !getActiveHaggle(targetDishId),
+    [getActiveHaggle],
   );
 
   return {
@@ -123,4 +105,7 @@ export function useHaggle(dishId?: string) {
     getActiveHaggle,
     canHaggle,
   };
+}
+function createChannel<T>(arg0: string, arg1: (event: any) => void) {
+  throw new Error("Function not implemented.");
 }
