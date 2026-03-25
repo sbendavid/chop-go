@@ -70,7 +70,7 @@ const ROLE_OPTIONS = [
 const Auth = () => {
   const navigate  = useNavigate();
   const location  = useLocation();
-  const { signIn, signUp, verifyOtp, resendVerifyOtp, user } = useAuth();
+  const { signIn, signUp, verifyOtp, resendVerifyOtp, user, loading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const [mode, setMode] = useState<AuthMode>('signin');
@@ -112,10 +112,12 @@ const Auth = () => {
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user) {
-      navigate(from || getDashboardRoute(user.role ?? 'buyer'), { replace: true });
-    }
-  }, [user, navigate, from]);
+    if (authLoading) return;
+    if (!user) return;
+
+    const role = user.role ?? 'buyer';
+    navigate(from || getDashboardRoute(role), { replace: true });
+  }, [user, authLoading, from, navigate]);
 
   // Sign In
 

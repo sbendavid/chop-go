@@ -154,7 +154,7 @@ const ChefDashboard = () => {
     const { data: chef } = await supabase
       .from('chef_profiles')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', user._id)
       .maybeSingle();
 
     if (chef) {
@@ -1113,7 +1113,7 @@ const ChefDashboard = () => {
                   </div>
                   <div>
                     <h2 className="font-display font-bold text-xl">{chefProfile?.brand_name || "Your Kitchen"}</h2>
-                    <p className="text-muted-foreground">{profile?.phone || user?.email}</p>
+                    <p className="text-muted-foreground">{profile?.phoneNumber || user?.email}</p>
                     {chefProfile?.kitchen_verified && (
                       <Badge variant="secondary" className="mt-1">✓ Verified Kitchen</Badge>
                     )}
@@ -1210,7 +1210,7 @@ const ChefDashboard = () => {
           isOpen={steamShotOpen}
           onClose={() => setSteamShotOpen(false)}
           chefId={chefProfile.id}
-          userId={user.id}
+          userId={user._id}
         />
       )}
 

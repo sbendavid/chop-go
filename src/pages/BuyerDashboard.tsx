@@ -77,7 +77,7 @@ const BuyerDashboard = () => {
           event: 'UPDATE',
           schema: 'public',
           table: 'orders',
-          filter: `buyer_id=eq.${user.id}`
+          filter: `buyer_id=eq.${user._id}`
         },
         (payload) => {
           const newStatus = payload.new.status as string;
@@ -179,7 +179,7 @@ const BuyerDashboard = () => {
               <div>
                 <p className="text-sm text-muted-foreground">Good afternoon 👋</p>
                 <h1 className="font-display font-bold text-foreground">
-                  {profile?.full_name || 'Foodie'}
+                  {profile?.fullName || 'Foodie'}
                 </h1>
               </div>
               <div className="flex items-center gap-3">
@@ -383,7 +383,7 @@ const BuyerDashboard = () => {
           {activeTab === 'orders' && (
             <div className="space-y-4">
               <h2 className="font-display font-bold text-xl">Your Orders</h2>
-              {user && <OrderTracker userId={user.id} />}
+              {user && <OrderTracker userId={user._id} />}
             </div>
           )}
 
@@ -395,8 +395,8 @@ const BuyerDashboard = () => {
                     <User className="w-8 h-8 text-primary" />
                   </div>
                   <div>
-                    <h2 className="font-display font-bold text-xl">{profile?.full_name || 'User'}</h2>
-                    <p className="text-muted-foreground">{profile?.phone || user?.email}</p>
+                    <h2 className="font-display font-bold text-xl">{profile?.fullName || 'User'}</h2>
+                    <p className="text-muted-foreground">{profile?.phoneNumber || user?.email}</p>
                     <Badge variant="secondary" className="mt-1">
                       <Gift className="w-3 h-3 mr-1" />
                       250 ChopCoins
