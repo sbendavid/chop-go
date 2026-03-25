@@ -163,7 +163,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         phoneNumber
       });
-      setUser(res.data.user);
       return { error: null };
     } catch (err) {
       return { error: err as Error };
@@ -182,7 +181,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         res.data.token,
         res.data.refreshToken
       );
-      setUser(res.data.user);
       return { error: null };
     } catch (err) {
       return { error: err as Error };
